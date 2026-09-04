@@ -1,0 +1,21 @@
+# Xcode
+build/
+DerivedData/
+*.xcworkspace
+!default.xcworkspace
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.ipa
+*.app
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Data and large audio files
+/data/
+*.mp3
+
+
