@@ -6,6 +6,7 @@ public struct TranscriptSegment: Identifiable, Codable, Sendable, Hashable {
     public let speaker: String
     public let timestamp: String
     public let seconds: Double
+    public let endSeconds: Double?
     public let text: String
 
     public init(
@@ -13,12 +14,14 @@ public struct TranscriptSegment: Identifiable, Codable, Sendable, Hashable {
         speaker: String,
         timestamp: String,
         seconds: Double,
+        endSeconds: Double? = nil,
         text: String
     ) {
         self.id = id
         self.speaker = speaker
         self.timestamp = timestamp
         self.seconds = seconds
+        self.endSeconds = endSeconds
         self.text = text
     }
 }

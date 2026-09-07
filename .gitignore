@@ -1,6 +1,7 @@
 # Xcode
 build/
 DerivedData/
+build_dd/
 *.xcworkspace
 !default.xcworkspace
 *.xcuserstate
@@ -19,3 +20,5 @@ xcuserdata/
 *.mp3
 
 
+.build/
+.agents

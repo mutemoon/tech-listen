@@ -63,8 +63,8 @@ public protocol DownloadManagerProtocol: AnyObject, Sendable {
     /// Cancels and deletes all active and completed downloads.
     func deleteAllDownloads() throws
 
-    /// Returns list of all downloaded episodes.
-    func fetchDownloadedEpisodes() async throws -> [Episode]
+    /// Automatically starts downloading the episode in background if not already downloaded or downloading.
+    func autoDownloadIfNeeded(for episode: Episode)
 }
 
 extension DownloadManagerProtocol {
@@ -81,6 +81,13 @@ extension DownloadManagerProtocol {
     }
 
     public func cancelDownload(for episodeId: String) {}
+
+    public func autoDownloadIfNeeded(for episode: Episode) {
+        guard !isDownloaded(episodeId: episode.id), downloadState(for: episode.id) == nil else { return }
+        Task {
+            try? await startDownload(for: episode)
+        }
+    }
 }
 
 // MARK: - Download Notification Events

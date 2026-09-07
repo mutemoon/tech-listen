@@ -64,7 +64,7 @@ public final class HomeViewModel {
         self.clearStorageObserverTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: Notification.Name("didClearAllLocalStorage")) {
                 guard let self = self else { return }
-                withAnimation(.snappy(duration: self.configService.animationDuration)) {
+                withAnimation(.snappy(duration: 0.35)) {
                     self.downloadedIds.removeAll()
                     self.downloadProgressMap.removeAll()
                     self.downloadStates.removeAll()
@@ -86,7 +86,7 @@ public final class HomeViewModel {
         self.downloadCompleteObserverTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .downloadDidComplete) {
                 guard let self = self, let epId = notification.object as? String else { continue }
-                withAnimation(.snappy(duration: self.configService.animationDuration)) {
+                withAnimation(.snappy(duration: 0.35)) {
                     self.downloadProgressMap.removeValue(forKey: epId)
                     self.downloadStates.removeValue(forKey: epId)
                     self.downloadedIds.insert(epId)
@@ -98,7 +98,7 @@ public final class HomeViewModel {
         self.downloadCancelObserverTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .downloadDidCancel) {
                 guard let self = self, let epId = notification.object as? String else { continue }
-                withAnimation(.snappy(duration: self.configService.animationDuration)) {
+                withAnimation(.snappy(duration: 0.35)) {
                     self.downloadProgressMap.removeValue(forKey: epId)
                     self.downloadStates.removeValue(forKey: epId)
                 }
@@ -108,7 +108,7 @@ public final class HomeViewModel {
         self.downloadFailObserverTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .downloadDidFail) {
                 guard let self = self, let epId = notification.object as? String else { continue }
-                withAnimation(.snappy(duration: self.configService.animationDuration)) {
+                withAnimation(.snappy(duration: 0.35)) {
                     self.downloadProgressMap.removeValue(forKey: epId)
                     self.downloadStates.removeValue(forKey: epId)
                 }
@@ -154,7 +154,8 @@ public final class HomeViewModel {
     /// Pull-to-refresh implementation to reload the first page from network.
     public func refresh() async {
         let pageSize = configService.pageSize
-        let previousIds = Set(episodes.map(\.id))
+        let previousLatestId = episodes.first?.id
+        let previousLatestNum = episodes.first?.episodeNumber ?? 0
 
         // Clear any previous banner immediately when starting refresh
         dismissToastTask?.cancel()
@@ -169,9 +170,16 @@ public final class HomeViewModel {
             self.hasMore = refreshed.count >= pageSize
             syncDownloadedStates(for: refreshed)
 
-            // Determine if new episodes were retrieved
-            let newItems = refreshed.filter { !previousIds.contains($0.id) }
-            let newCount = newItems.count
+            // Determine if genuinely newer episodes were retrieved
+            let newCount: Int
+            if let previousLatestId = previousLatestId,
+               let index = refreshed.firstIndex(where: { $0.id == previousLatestId }) {
+                newCount = index
+            } else if previousLatestNum > 0 {
+                newCount = refreshed.filter { $0.episodeNumber > previousLatestNum }.count
+            } else {
+                newCount = 0
+            }
 
             feedbackService.triggerActionSuccess()
             showRefreshStatus(newCount > 0 ? .success(newCount: newCount) : .upToDate)
@@ -243,22 +251,22 @@ public final class HomeViewModel {
     }
 
     public func isDownloaded(episodeId: String) -> Bool {
-        return downloadedIds.contains(episodeId)
+        return downloadedIds.contains(episodeId) || downloadManager.isDownloaded(episodeId: episodeId)
     }
 
     public func downloadProgress(for episodeId: String) -> Double? {
-        return downloadProgressMap[episodeId]
+        return downloadStates[episodeId]?.progress ?? downloadProgressMap[episodeId] ?? downloadManager.downloadProgress(for: episodeId)
     }
 
     public func downloadState(for episodeId: String) -> DownloadProgressState? {
-        return downloadStates[episodeId]
+        return downloadStates[episodeId] ?? downloadManager.downloadState(for: episodeId)
     }
 
     /// Triggers an immediate progressive download with real network downloading and state updates.
     public func triggerDownload(for episode: Episode) async {
         feedbackService.triggerTap()
 
-        withAnimation(.snappy(duration: configService.animationDuration)) {
+        withAnimation(.snappy(duration: 0.35)) {
             downloadProgressMap[episode.id] = 0.01
             downloadStates[episode.id] = DownloadProgressState(
                 episodeId: episode.id,
@@ -274,7 +282,7 @@ public final class HomeViewModel {
             try await downloadManager.startDownload(for: episode)
             feedbackService.triggerActionSuccess()
         } catch {
-            withAnimation(.snappy(duration: configService.animationDuration)) {
+            withAnimation(.snappy(duration: 0.35)) {
                 downloadProgressMap.removeValue(forKey: episode.id)
                 downloadStates.removeValue(forKey: episode.id)
             }
@@ -287,7 +295,7 @@ public final class HomeViewModel {
         feedbackService.triggerImpact()
         downloadManager.cancelDownload(for: episodeId)
 
-        withAnimation(.snappy(duration: configService.animationDuration)) {
+        withAnimation(.snappy(duration: 0.35)) {
             downloadStates.removeValue(forKey: episodeId)
             downloadProgressMap.removeValue(forKey: episodeId)
         }
@@ -298,7 +306,12 @@ public final class HomeViewModel {
         feedbackService.triggerImpact()
 
         // 1. Remove physical file via download manager
-        try? downloadManager.deleteDownload(for: episodeId)
+        do {
+            try downloadManager.deleteDownload(for: episodeId)
+        } catch {
+            feedbackService.triggerActionFailure()
+            return
+        }
 
         // 2. Deregister in persistence layer
         Task {
@@ -322,7 +335,7 @@ public final class HomeViewModel {
             }
         }
 
-        withAnimation(.snappy(duration: configService.animationDuration)) {
+        withAnimation(.snappy(duration: 0.35)) {
             downloadedIds.remove(episodeId)
             downloadProgressMap.removeValue(forKey: episodeId)
             downloadStates.removeValue(forKey: episodeId)

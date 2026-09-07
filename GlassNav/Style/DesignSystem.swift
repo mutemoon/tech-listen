@@ -26,4 +26,16 @@ public enum DesignSystem {
         public static let strokeWidth: CGFloat = 1.0
         public static let shadowRadius: CGFloat = 16.0
     }
+
+    public enum LiquidGlass {
+        public static let containerSpacing: CGFloat = 12.0
+        public static let barSpacing: CGFloat = 8.0
+        public static let barHeight: CGFloat = 52.0
+        public static let cardCornerRadius: CGFloat = 22.0
+        public static let tokenCornerRadius: CGFloat = 12.0
+        public static let specularStrokeWidth: CGFloat = 1.0
+        public static let interactiveSpring = Animation.spring(response: 0.28, dampingFraction: 0.78)
+        public static let morphSpring = Animation.spring(response: 0.34, dampingFraction: 0.82)
+    }
 }
+

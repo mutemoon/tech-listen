@@ -6,12 +6,23 @@ public final class PodcastRSSParser: NSObject, XMLParserDelegate, @unchecked Sen
     private var inItem: Bool = false
     private var currentElement: String = ""
 
+    private var channelAuthorBuffer: String = ""
+    private var channelHostBuffer: String = ""
+    private var currentPersonRole: String = ""
+
     private var titleBuffer: String = ""
+    private var itunesTitleBuffer: String = ""
+    private var episodeNumberBuffer: String = ""
+    private var itunesEpisodeBuffer: String = ""
+    private var authorBuffer: String = ""
+    private var itunesAuthorBuffer: String = ""
     private var pubDateBuffer: String = ""
     private var durationBuffer: String = ""
+    private var itunesDurationBuffer: String = ""
     private var descBuffer: String = ""
     private var enclosureUrl: String = ""
     private var enclosureLen: Int64 = 0
+    private var transcriptUrl: String = ""
 
     private static let rfc822Formatter: DateFormatter = {
         let df = DateFormatter()
@@ -35,6 +46,9 @@ public final class PodcastRSSParser: NSObject, XMLParserDelegate, @unchecked Sen
         parsedEpisodes.removeAll()
         inItem = false
         currentElement = ""
+        channelAuthorBuffer = ""
+        channelHostBuffer = ""
+        currentPersonRole = ""
 
         let parser = XMLParser(data: data)
         parser.delegate = self
@@ -58,26 +72,70 @@ public final class PodcastRSSParser: NSObject, XMLParserDelegate, @unchecked Sen
         if elementName == "item" {
             inItem = true
             titleBuffer = ""
+            itunesTitleBuffer = ""
+            episodeNumberBuffer = ""
+            itunesEpisodeBuffer = ""
+            authorBuffer = ""
+            itunesAuthorBuffer = ""
             pubDateBuffer = ""
             durationBuffer = ""
+            itunesDurationBuffer = ""
             descBuffer = ""
             enclosureUrl = ""
             enclosureLen = 0
+            transcriptUrl = ""
+        } else if elementName == "podcast:person" || elementName == "person" {
+            currentPersonRole = attributeDict["role"] ?? ""
         } else if inItem && elementName == "enclosure" {
             enclosureUrl = attributeDict["url"] ?? ""
             enclosureLen = Int64(attributeDict["length"] ?? "") ?? 0
+        } else if inItem && (elementName == "podcast:transcript" || elementName == "transcript") {
+            let url = attributeDict["url"] ?? ""
+            let type = attributeDict["type"] ?? ""
+            if type.contains("vtt") || url.hasSuffix(".vtt") {
+                transcriptUrl = url
+            }
         }
     }
 
     public func parser(_ parser: XMLParser, foundCharacters string: String) {
-        guard inItem else { return }
+        if !inItem {
+            switch currentElement {
+            case "itunes:author", "author":
+                channelAuthorBuffer += string
+            case "podcast:person", "person":
+                if currentPersonRole.isEmpty || currentPersonRole.lowercased() == "host" {
+                    channelHostBuffer += string
+                }
+            default:
+                break
+            }
+            return
+        }
+
         switch currentElement {
         case "title":
             titleBuffer += string
+        case "itunes:title":
+            itunesTitleBuffer += string
+        case "episode":
+            episodeNumberBuffer += string
+        case "itunes:episode":
+            itunesEpisodeBuffer += string
+        case "author":
+            authorBuffer += string
+        case "itunes:author":
+            itunesAuthorBuffer += string
+        case "podcast:person", "person":
+            if currentPersonRole.isEmpty || currentPersonRole.lowercased() == "host" {
+                authorBuffer += string
+            }
         case "pubDate":
             pubDateBuffer += string
-        case "itunes:duration":
+        case "duration":
             durationBuffer += string
+        case "itunes:duration":
+            itunesDurationBuffer += string
         case "description":
             descBuffer += string
         default:
@@ -98,36 +156,66 @@ public final class PodcastRSSParser: NSObject, XMLParserDelegate, @unchecked Sen
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        if elementName == "podcast:person" || elementName == "person" {
+            currentPersonRole = ""
+        }
+
         guard elementName == "item" else { return }
         inItem = false
 
-        // 1. Guard: Only retain episodes that have online transcripts
-        guard descBuffer.contains("-transcript") else { return }
+        // 1. Guard: Only retain episodes that have an audio enclosure URL
+        guard !enclosureUrl.isEmpty else { return }
 
-        // 2. Parse Episode Number (e.g. "#501")
-        guard let epRange = titleBuffer.range(of: #"#\d+"#, options: .regularExpression) else { return }
-        let epNumStr = String(titleBuffer[epRange].dropFirst())
-        guard let epNum = Int(epNumStr) else { return }
+        // Select non-empty title source (prefer standard <title>, fallback to <itunes:title>)
+        let resolvedTitleBuffer = !titleBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? titleBuffer
+            : itunesTitleBuffer
 
-        // 2. Clean Title
-        var cleanTitle = titleBuffer
+        // 2. Parse Episode Number
+        let epNum: Int
+        let rawEp = (!itunesEpisodeBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? itunesEpisodeBuffer : episodeNumberBuffer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let num = Int(rawEp) {
+            epNum = num
+        } else if let epRange = resolvedTitleBuffer.range(of: #"#\d+"#, options: .regularExpression) {
+            epNum = Int(resolvedTitleBuffer[epRange].dropFirst()) ?? (parsedEpisodes.count + 1)
+        } else {
+            epNum = parsedEpisodes.count + 1
+        }
+
+        // 3. Clean Title
+        var cleanTitle = resolvedTitleBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         if let prefixRange = cleanTitle.range(of: #"^#\d+\s*[-–—:]\s*"#, options: .regularExpression) {
             cleanTitle.removeSubrange(prefixRange)
         }
-        cleanTitle = cleanTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        cleanTitle = cleanTitle
             .replacingOccurrences(of: "&#8217;", with: "'")
+            .replacingOccurrences(of: "&#8216;", with: "'")
+            .replacingOccurrences(of: "&#8220;", with: "\"")
+            .replacingOccurrences(of: "&#8221;", with: "\"")
             .replacingOccurrences(of: "&#038;", with: "&")
             .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 3. Guest (Happy Path: "Guest: Topic" format)
+        // 4. Host / Guest
+        let itemAuthor = (!itunesAuthorBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? itunesAuthorBuffer : authorBuffer)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedChannelHost = channelHostBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedChannelAuthor = channelAuthorBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let guest: String
-        if cleanTitle.contains(":") {
-            guest = cleanTitle.components(separatedBy: ":")[0].trimmingCharacters(in: .whitespaces)
+        if !itemAuthor.isEmpty {
+            guest = itemAuthor
+        } else if !resolvedChannelHost.isEmpty {
+            guest = resolvedChannelHost
+        } else if !resolvedChannelAuthor.isEmpty {
+            guest = resolvedChannelAuthor
         } else {
             guest = ""
         }
 
-        // 4. Format Publication Date (RFC822 -> YYYY-MM-DD)
+        // 5. Format Publication Date (RFC822 -> YYYY-MM-DD)
         let rawDate = pubDateBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let formattedDate: String
         if let date = Self.rfc822Formatter.date(from: rawDate) {
@@ -136,26 +224,27 @@ public final class PodcastRSSParser: NSObject, XMLParserDelegate, @unchecked Sen
             formattedDate = rawDate
         }
 
-        // 5. Parse Duration (HH:mm:ss / mm:ss / seconds)
-        let duration = parseDuration(durationBuffer.trimmingCharacters(in: .whitespacesAndNewlines))
-
-        // 6. Segments (Happy Path: ~18s per segment)
-        let totalSegments = duration > 0 ? Int(duration / 18.0) : 0
+        // 6. Parse Duration (HH:mm:ss / mm:ss / seconds)
+        let rawDuration = !itunesDurationBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? itunesDurationBuffer
+            : durationBuffer
+        let duration = parseDuration(rawDuration.trimmingCharacters(in: .whitespacesAndNewlines))
 
         parsedEpisodes.append(
             Episode(
-                id: "ep\(epNum)",
+                id: "podnews-\(epNum)",
                 episodeNumber: epNum,
                 title: cleanTitle,
                 guest: guest,
                 pubDate: formattedDate,
                 audioFileName: nil,
-                audioURL: enclosureUrl.isEmpty ? nil : enclosureUrl,
+                audioURL: enclosureUrl,
                 audioSizeBytes: enclosureLen,
                 duration: duration,
                 transcriptFileName: "",
                 vttFileName: "",
-                totalSegments: totalSegments,
+                transcriptURL: transcriptUrl.isEmpty ? nil : transcriptUrl,
+                totalSegments: 0,
                 isDownloaded: false
             )
         )

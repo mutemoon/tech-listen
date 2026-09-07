@@ -21,3 +21,14 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  GlassNavTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - GlassNavTests
+    dependencies:
+      - target: GlassNav
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES

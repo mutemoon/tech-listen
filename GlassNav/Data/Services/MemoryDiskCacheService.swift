@@ -36,10 +36,10 @@ public final class MemoryDiskCacheService: CacheServiceProtocol, @unchecked Send
 
     public func clearAll() {
         lock.lock()
+        defer { lock.unlock() }
         memoryCache.removeAllObjects()
         keys.removeAll()
         inMemoryBytes = 0
-        lock.unlock()
     }
 
     public func cachedItemCount() -> Int {

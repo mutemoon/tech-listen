@@ -1,32 +1,37 @@
 import SwiftUI
 
 /// Defines the selectable navigation destinations for the bottom glass bar.
-enum TabItem: String, CaseIterable, Identifiable, Sendable {
-    case home
+public enum TabItem: String, CaseIterable, Identifiable, Sendable {
+    case episodes
+    case player
     case settings
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     @MainActor
-    var title: String {
+    public var title: String {
         switch self {
-        case .home:
-            return LanguageManager.shared.string(.tabHome)
+        case .episodes:
+            return LanguageManager.shared.current == .chinese ? "节目" : "Episodes"
+        case .player:
+            return LanguageManager.shared.current == .chinese ? "精听" : "Listen"
         case .settings:
             return LanguageManager.shared.string(.tabSettings)
         }
     }
 
-    var icon: String {
+    public var icon: String {
         switch self {
-        case .home: return "house"
+        case .episodes: return "list.bullet"
+        case .player: return "play"
         case .settings: return "gearshape"
         }
     }
 
-    var selectedIcon: String {
+    public var selectedIcon: String {
         switch self {
-        case .home: return "house.fill"
+        case .episodes: return "list.bullet"
+        case .player: return "play"
         case .settings: return "gearshape.fill"
         }
     }

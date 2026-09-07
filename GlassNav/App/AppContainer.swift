@@ -3,57 +3,43 @@ import SwiftUI
 /// Concrete production container binding real persistent storage and services.
 @MainActor
 public final class ProductionContainer: AppContainerProtocol {
+    public let appState: any AppStateProtocol
     public let configurationService: any ConfigurationServiceProtocol
     public let feedbackService: any FeedbackServiceProtocol
-    public let episodeRepository: any EpisodeRepositoryProtocol
+    public let persistenceService: any EpisodeRepositoryProtocol
     public let cacheService: any CacheServiceProtocol
+    public let requestService: any RequestServiceProtocol
+    public let episodeRepository: any EpisodeRepositoryProtocol
     public let downloadManager: any DownloadManagerProtocol
     public let audioPlayer: any AudioPlayerProtocol
 
     public init(
+        appState: (any AppStateProtocol)? = nil,
         configurationService: (any ConfigurationServiceProtocol)? = nil,
         feedbackService: (any FeedbackServiceProtocol)? = nil,
-        episodeRepository: (any EpisodeRepositoryProtocol)? = nil,
+        persistenceService: (any EpisodeRepositoryProtocol)? = nil,
         cacheService: (any CacheServiceProtocol)? = nil,
+        requestService: (any RequestServiceProtocol)? = nil,
+        episodeRepository: (any EpisodeRepositoryProtocol)? = nil,
         downloadManager: (any DownloadManagerProtocol)? = nil,
         audioPlayer: (any AudioPlayerProtocol)? = nil
     ) {
+        let req = requestService ?? URLSessionRequestService()
         let config = configurationService ?? AppConfigurationService()
-        let repo = episodeRepository ?? RemoteRSSFeedEpisodeRepository()
+        let persistence = persistenceService ?? LocalDiskEpisodeRepository()
+        let repo = episodeRepository ?? RemoteRSSFeedEpisodeRepository(
+            localDiskRepo: persistence,
+            requestService: req
+        )
+        let dl = downloadManager ?? StandardDownloadManager(episodeRepository: repo)
+        self.appState = appState ?? StandardAppState(downloadManager: dl)
         self.configurationService = config
         self.feedbackService = feedbackService ?? HapticFeedbackService(config: config)
-        self.episodeRepository = repo
+        self.persistenceService = persistence
         self.cacheService = cacheService ?? MemoryDiskCacheService()
-        self.downloadManager = downloadManager ?? StandardDownloadManager(episodeRepository: repo)
-        self.audioPlayer = audioPlayer ?? StandardAudioPlayer()
-    }
-}
-
-/// Testing and preview container binding standard repositories and services.
-@MainActor
-public final class PreviewContainer: AppContainerProtocol {
-    public let configurationService: any ConfigurationServiceProtocol
-    public let feedbackService: any FeedbackServiceProtocol
-    public let episodeRepository: any EpisodeRepositoryProtocol
-    public let cacheService: any CacheServiceProtocol
-    public let downloadManager: any DownloadManagerProtocol
-    public let audioPlayer: any AudioPlayerProtocol
-
-    public init(
-        configurationService: (any ConfigurationServiceProtocol)? = nil,
-        feedbackService: (any FeedbackServiceProtocol)? = nil,
-        episodeRepository: (any EpisodeRepositoryProtocol)? = nil,
-        cacheService: (any CacheServiceProtocol)? = nil,
-        downloadManager: (any DownloadManagerProtocol)? = nil,
-        audioPlayer: (any AudioPlayerProtocol)? = nil
-    ) {
-        let config = configurationService ?? AppConfigurationService()
-        let repo = episodeRepository ?? RemoteRSSFeedEpisodeRepository()
-        self.configurationService = config
-        self.feedbackService = feedbackService ?? HapticFeedbackService(config: config)
+        self.requestService = req
         self.episodeRepository = repo
-        self.cacheService = cacheService ?? MemoryDiskCacheService()
-        self.downloadManager = downloadManager ?? StandardDownloadManager(episodeRepository: repo)
+        self.downloadManager = dl
         self.audioPlayer = audioPlayer ?? StandardAudioPlayer()
     }
 }

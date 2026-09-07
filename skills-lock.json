@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "liquid-glass-design": {
+      "source": "affaan-m/ecc",
+      "sourceUrl": "https://github.com/affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/liquid-glass-design/SKILL.md",
+      "computedHash": "6e424b8daba26c92a8283cd3e5b35c7b2bc78a0a9fc07821a5939027090b8e43"
+    }
+  }
+}

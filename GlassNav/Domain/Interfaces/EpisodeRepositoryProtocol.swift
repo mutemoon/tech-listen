@@ -15,6 +15,9 @@ public protocol EpisodeRepositoryProtocol: Sendable {
     /// Fetch the full sentence-level transcript segments for an episode.
     func fetchTranscript(for episodeId: String) async throws -> [TranscriptSegment]
 
+    /// Fetch the full sentence-level transcript segments for an episode entity directly.
+    func fetchTranscript(for episode: Episode) async throws -> [TranscriptSegment]
+
     /// Save or update an episode entity.
     func save(episode: Episode) async throws
 
@@ -26,10 +29,28 @@ public protocol EpisodeRepositoryProtocol: Sendable {
 
     /// Clears all stored local files and reset registered download states through the persistence layer.
     func clearAllStoredContent() async throws
+
+    /// Save a list of episodes to the persistence store.
+    func saveAllEpisodes(_ episodes: [Episode]) async throws
+
+    /// Save sentence-level transcript segments for an episode.
+    func saveTranscript(_ segments: [TranscriptSegment], for episodeId: String) async throws
 }
 
 extension EpisodeRepositoryProtocol {
     public func refreshEpisodes() async throws -> [Episode] {
         try await fetchEpisodes(page: 0, pageSize: 20)
     }
+
+    public func fetchTranscript(for episode: Episode) async throws -> [TranscriptSegment] {
+        try await fetchTranscript(for: episode.id)
+    }
+
+    public func saveAllEpisodes(_ episodes: [Episode]) async throws {
+        for ep in episodes {
+            try await save(episode: ep)
+        }
+    }
+
+    public func saveTranscript(_ segments: [TranscriptSegment], for episodeId: String) async throws {}
 }

@@ -10,7 +10,6 @@ public final class SettingsViewModel {
     private let episodeRepository: any EpisodeRepositoryProtocol
     private let downloadManager: any DownloadManagerProtocol
 
-    public var isAdvancedExpanded: Bool = false
     public var cacheSizeDisplay: String = ""
 
     public init(
@@ -28,32 +27,11 @@ public final class SettingsViewModel {
         self.cacheSizeDisplay = cacheService.formattedCacheSize()
     }
 
-    public var pageSize: Int {
-        get { configService.pageSize }
+    public var language: Language {
+        get { configService.language }
         set {
-            configService.pageSize = newValue
+            configService.language = newValue
             feedbackService.triggerTap()
-        }
-    }
-
-    public var glassStrokeWidth: CGFloat {
-        get { configService.glassStrokeWidth }
-        set {
-            configService.glassStrokeWidth = newValue
-        }
-    }
-
-    public var glassShadowRadius: CGFloat {
-        get { configService.glassShadowRadius }
-        set {
-            configService.glassShadowRadius = newValue
-        }
-    }
-
-    public var animationDuration: Double {
-        get { configService.animationDuration }
-        set {
-            configService.animationDuration = newValue
         }
     }
 
@@ -69,18 +47,22 @@ public final class SettingsViewModel {
 
     public func clearCache() {
         Task {
-            // 1. Let the persistence layer clear all registered content, audio/transcript files, and reset states
-            try? await episodeRepository.clearAllStoredContent()
+            do {
+                // 1. Let the persistence layer clear all registered content, audio/transcript files, and reset states
+                try await episodeRepository.clearAllStoredContent()
 
-            // 2. Let download manager cancel any active tasks and clean up download tracking
-            try? downloadManager.deleteAllDownloads()
+                // 2. Let download manager cancel any active tasks and clean up download tracking
+                try downloadManager.deleteAllDownloads()
 
-            // 3. Clear memory cache
-            cacheService.clearAll()
+                // 3. Clear memory cache
+                cacheService.clearAll()
 
-            // 4. Refresh displayed size and give haptic feedback
-            cacheSizeDisplay = cacheService.formattedCacheSize()
-            feedbackService.triggerActionSuccess()
+                // 4. Refresh displayed size and give haptic feedback
+                cacheSizeDisplay = cacheService.formattedCacheSize()
+                feedbackService.triggerActionSuccess()
+            } catch {
+                feedbackService.triggerActionFailure()
+            }
         }
     }
 

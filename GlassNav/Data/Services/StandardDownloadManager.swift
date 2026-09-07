@@ -120,17 +120,13 @@ public final class StandardDownloadManager: DownloadManagerProtocol {
         }
         activeProgressStates.removeAll()
 
-        if fileManager.fileExists(atPath: downloadDirectory.path),
-           let files = try? fileManager.contentsOfDirectory(at: downloadDirectory, includingPropertiesForKeys: nil) {
+        if fileManager.fileExists(atPath: downloadDirectory.path) {
+            let files = try fileManager.contentsOfDirectory(at: downloadDirectory, includingPropertiesForKeys: nil)
             for file in files {
-                try? fileManager.removeItem(at: file)
+                try fileManager.removeItem(at: file)
             }
         }
         NotificationCenter.default.post(name: Notification.Name("didChangeCacheStorage"), object: nil)
-    }
-
-    public func fetchDownloadedEpisodes() async throws -> [Episode] {
-        return []
     }
 }
 

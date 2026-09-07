@@ -65,17 +65,25 @@ public actor LocalDiskEpisodeRepository: EpisodeRepositoryProtocol {
     }
 
     public func fetchTranscript(for episodeId: String) async throws -> [TranscriptSegment] {
-        guard let episode = try await fetchEpisode(byId: episodeId) else {
-            throw LocalDiskError.episodeNotFound(episodeId)
+        let directName = "\(episodeId)_transcript.json"
+        if let fileURL = resolveFileURL(named: directName) {
+            let data = try Data(contentsOf: fileURL)
+            return try parser.parse(from: data)
         }
 
-        let fileName = !episode.transcriptFileName.isEmpty ? episode.transcriptFileName : "\(episodeId)_transcript.json"
-        guard let fileURL = resolveFileURL(named: fileName) else {
-            throw LocalDiskError.transcriptNotFound(episodeId)
+        if let episode = try await fetchEpisode(byId: episodeId), !episode.transcriptFileName.isEmpty, let fileURL = resolveFileURL(named: episode.transcriptFileName) {
+            let data = try Data(contentsOf: fileURL)
+            return try parser.parse(from: data)
         }
 
-        let data = try Data(contentsOf: fileURL)
-        return try parser.parse(from: data)
+        throw LocalDiskError.transcriptNotFound(episodeId)
+    }
+
+    public func saveTranscript(_ segments: [TranscriptSegment], for episodeId: String) throws {
+        let fileName = "\(episodeId)_transcript.json"
+        let targetURL = storageDirectory.appendingPathComponent(fileName)
+        let data = try JSONEncoder().encode(segments)
+        try data.write(to: targetURL, options: .atomic)
     }
 
     public func save(episode: Episode) async throws {

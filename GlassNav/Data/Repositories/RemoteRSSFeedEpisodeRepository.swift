@@ -8,12 +8,13 @@ public extension Notification.Name {
 /// Live network repository fetching real episodes directly from the podcast RSS feed,
 /// with instant local cache fallback and local media resolution.
 public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
-    public static let defaultFeedURL = URL(string: "https://lexfridman.com/feed/podcast/")!
+    public static let defaultFeedURL = URL(string: "https://podnews.net/rss")!
 
     private let feedURL: URL
     private let rssParser: PodcastRSSParser
-    private let localDiskRepo: LocalDiskEpisodeRepository
-    private let session: URLSession
+    private let transcriptParser: any TranscriptParserProtocol
+    private let localDiskRepo: any EpisodeRepositoryProtocol
+    private let requestService: any RequestServiceProtocol
 
     private var inMemoryEpisodes: [Episode]?
     private var isRefreshingNetwork: Bool = false
@@ -22,13 +23,15 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
     public init(
         feedURL: URL = RemoteRSSFeedEpisodeRepository.defaultFeedURL,
         rssParser: PodcastRSSParser = PodcastRSSParser(),
-        localDiskRepo: LocalDiskEpisodeRepository = LocalDiskEpisodeRepository(),
-        session: URLSession = .shared
+        transcriptParser: any TranscriptParserProtocol = VTTTranscriptParser(),
+        localDiskRepo: any EpisodeRepositoryProtocol = LocalDiskEpisodeRepository(),
+        requestService: any RequestServiceProtocol = URLSessionRequestService()
     ) {
         self.feedURL = feedURL
         self.rssParser = rssParser
+        self.transcriptParser = transcriptParser
         self.localDiskRepo = localDiskRepo
-        self.session = session
+        self.requestService = requestService
     }
 
     public func fetchEpisodes() async throws -> [Episode] {
@@ -47,6 +50,8 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
         case networkError(Error)
         case invalidResponse(Int)
         case emptyData
+        case episodeNotFound(String)
+        case transcriptNotFound(String)
 
         public var errorDescription: String? {
             switch self {
@@ -56,6 +61,10 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
                 return "Server error: HTTP \(code)"
             case .emptyData:
                 return "Empty feed response"
+            case .episodeNotFound(let id):
+                return "Episode with ID '\(id)' not found."
+            case .transcriptNotFound(let id):
+                return "Transcript file not found for episode '\(id)'."
             }
         }
     }
@@ -72,7 +81,48 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
     }
 
     public func fetchTranscript(for episodeId: String) async throws -> [TranscriptSegment] {
-        return try await localDiskRepo.fetchTranscript(for: episodeId)
+        // 1. Fast path: check local disk cache
+        if let cached = try? await localDiskRepo.fetchTranscript(for: episodeId), !cached.isEmpty {
+            return cached
+        }
+
+        // 2. Resolve episode to get transcript URL
+        guard let episode = try await fetchEpisode(byId: episodeId) else {
+            throw FeedError.episodeNotFound(episodeId)
+        }
+
+        return try await fetchTranscript(for: episode)
+    }
+
+    public func fetchTranscript(for episode: Episode) async throws -> [TranscriptSegment] {
+        // 1. Fast path: check local disk cache
+        if let cached = try? await localDiskRepo.fetchTranscript(for: episode.id), !cached.isEmpty {
+            return cached
+        }
+
+        // 2. Resolve transcript URL
+        var resolvedURLString = episode.transcriptURL
+        if resolvedURLString == nil, let audio = episode.audioURL, let mp3Range = audio.range(of: "podnews.net/audio/") {
+            let path = audio[mp3Range.lowerBound...]
+            resolvedURLString = "https://\(path).vtt"
+        }
+        guard let urlString = resolvedURLString, let url = URL(string: urlString) else {
+            throw FeedError.transcriptNotFound(episode.id)
+        }
+
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 15)
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await requestService.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw FeedError.invalidResponse(http.statusCode)
+        }
+
+        let segments = try transcriptParser.parse(from: data)
+        if !segments.isEmpty {
+            try? await localDiskRepo.saveTranscript(segments, for: episode.id)
+        }
+        return segments
     }
 
     public func save(episode: Episode) async throws {
@@ -162,7 +212,7 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
             return initialLocal
         }
 
-        // 2. If local disk is completely empty, fetch live feed from network
+        // 2. If local disk is completely empty or purged, fetch live feed from network
         let networkEpisodes = try await fetchLiveFeedFromNetworkThrows()
         return networkEpisodes
     }
@@ -196,7 +246,7 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await requestService.data(for: request)
         } catch {
             throw FeedError.networkError(error)
         }
@@ -243,6 +293,7 @@ public actor RemoteRSSFeedEpisodeRepository: EpisodeRepositoryProtocol {
                     duration: ep.duration,
                     transcriptFileName: ep.transcriptFileName,
                     vttFileName: ep.vttFileName,
+                    transcriptURL: ep.transcriptURL,
                     totalSegments: ep.totalSegments,
                     isDownloaded: isDownloaded
                 )
